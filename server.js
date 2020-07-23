@@ -95,6 +95,7 @@ const resetDatabase = db.transaction(() => {
 })
 
 
+
 /**
  * Get all of the clients. Optional filter 'status'
  * GET /api/v1/clients?status={status} - list all clients, optional parameter status: 'backlog' | 'in-progress' | 'complete'
@@ -145,8 +146,10 @@ app.get('/api/v1/clients/:id', (req, res) => {
  *
  */
 app.put('/api/v1/clients/:id', (req, res) => {
+  resetDatabase()
   const id = parseInt(req.params.id, 10);
-  const { valid, messageObj } = validateId(id);
+  let valid, messageObj 
+  ({ valid, messageObj } = validateId(id));
   if (!valid) {
     res.status(400).send(messageObj);
   }
@@ -168,43 +171,47 @@ app.put('/api/v1/clients/:id', (req, res) => {
   } else {
     status = originalClient.status
   }
+  const maxPriority = clients.filter(client => client.status === status).length + 1
+  if (!priority) {
+    if (originalClient.status === status) return res.status(200).send(clients)
+    priority = maxPriority
+  }
 
-  if (priority) {
-    const { valid, messageObj } = validatePriority(priority)
-    if (!valid) return res.status(400).send(messageObj);
-    if (originalClient.status === status) {
-      if (originalClient.priority === priority) return
-      clients.map(client => {
-        if (client.status !== status) return
-        if (priority <= client.priority < originalClient.priority) {
-          client.priority = client.priority + 1
-        } else if (priority >= client.priority > originalClient.priority) {
+  ({ valid, messageObj } = validatePriority(priority))
+  if (!valid) return res.status(400).send(messageObj);
+  if (originalClient.status === status) {
+    if (originalClient.priority === priority) {
+      return res.status(200).send(clients)
+    } 
+    clients.map(client => {
+      if (client.status !== status) return 
+      if (priority <= client.priority < originalClient.priority) {
+        client.priority = client.priority + 1
+      } else if (priority >= client.priority > originalClient.priority) {
+        client.priority = client.priority - 1
+      }
+    })
+  } else {
+    clients.map(client => {
+      if (client.status === originalClient.status) {
+        if (client.priority > originalClient.priority) {
           client.priority = client.priority - 1
         }
-      })
-    } else {
-      clients.map(client => {
-        if (client.status === originalClient.status) {
-          if (client.priority > originalClient.priority) {
-            client.priority = client.priority - 1
-          }
-        } else if (client.status === status) {
-          if (client.priority >= priority) {
-            client.priority = client.priority + 1
-          }
+      } else if (client.status === status) {
+        if (client.priority >= priority) {
+          client.priority = client.priority + 1
         }
-      })
-    }
-  } else {
-    if (status = originalClient.status) return
-    priority = clients.filter(client => client !== status).length
+      }
+    })
   }
+
+  if (priority > maxPriority) priority = maxPriority
+
   updatedClient.priority = priority
   clients = clients.map(client => {
     return client.id === id ? updatedClient : client
   })
-
-  // clients array is correct
+  // clients array is set
 
   const updateClient = db.prepare(
     'UPDATE clients SET status = ?, priority = ? WHERE id = ?'
@@ -214,7 +221,7 @@ app.put('/api/v1/clients/:id', (req, res) => {
       updateClient.run( client.status, client.priority, client.id )
     })
   }
-
+  
   updateAllClients(clients)
   
   return res.status(200).send(clients);
