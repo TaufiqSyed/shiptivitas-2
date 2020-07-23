@@ -2,7 +2,6 @@ import express from 'express';
 import Database from 'better-sqlite3';
 
 const app = express();
-
 app.use(express.json());
 
 app.get('/', (req, res) => {
